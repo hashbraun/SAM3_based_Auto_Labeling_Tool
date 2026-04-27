@@ -4,7 +4,7 @@
 
 ---
 
-## Phase 1: 백엔드 기반 재구성 ✅ 완료 (미커밋)
+## Phase 1: 백엔드 기반 재구성 ✅ 완료
 
 ### 1-1. SAM 3 서비스 구현
 - [x] `segment-anything-2` 패키지 설치 (`uv pip install git+https://github.com/facebookresearch/sam2.git`)
@@ -16,7 +16,7 @@
 
 ### 1-2. GroundingDINO 제거
 - [x] `main.py` 에서 DINOService startup 제거
-- [ ] `services/dino_service.py` 삭제 (레거시 파일 남아있음, 다음 세션에서 정리)
+- [x] `services/dino_service.py` 삭제 (완료)
 
 ### 1-3. 폴더 브라우저 API
 - [x] `routers/project.py` 생성
@@ -43,43 +43,38 @@
 
 **Phase 1 완료 기준**: ✅ 지정 폴더에서 이미지 로드 + SAM3 클릭/박스 → mask 반환 동작 확인
 
-**⚠️ 커밋 미완료**: 다음 세션 시작 시 먼저 git commit + push
-
 ---
 
-## Phase 2: 프론트엔드 재구성
+## Phase 2: 프론트엔드 재구성 ✅ 완료
 
 ### 2-1. 클래스 선택 컴포넌트
-- [ ] `frontend/src/components/ClassSelector.tsx` 생성
-- [ ] 고정 클래스 4종 (사람/강아지/로봇/휠체어) UI
-- [ ] 선택된 클래스 강조 표시
+- [x] `frontend/src/components/ClassSelector.tsx` 생성
+- [x] 고정 클래스 4종 (사람/강아지/로봇/휠체어) UI
+- [x] 선택된 클래스 강조 표시
 
-### 2-2. 모드 선택 + SAM3 라벨링 API (백엔드 완료됨)
+### 2-2. 모드 선택 컴포넌트
+- [x] `frontend/src/components/ModeToggle.tsx` 생성
+- [x] SAM 3 모드 / YOLO guide 모드 토글 (YOLO guide는 Phase 3 비활성)
 
-### 2-2. 클래스 선택 컴포넌트
-- [ ] `frontend/src/components/ClassSelector.tsx` 생성
-- [ ] 고정 클래스 4종 (사람/강아지/로봇/휠체어) UI
-- [ ] 선택된 클래스 강조 표시
+### 2-3. 이미지 네비게이션
+- [x] `frontend/src/components/ImageNavigator.tsx` 생성
+- [x] 이전/다음 프레임 이동 버튼
+- [x] 현재 이미지 저장 여부 표시
+- [x] 폴더 내 진행률 표시 (n/total)
+- [x] 미저장 이동 시 경고 모달
 
-### 2-3. 모드 선택 컴포넌트
-- [ ] `frontend/src/components/ModeToggle.tsx` 생성
-- [ ] SAM 3 모드 / YOLO guide 모드 토글
-- [ ] 모드에 따라 캔버스 동작 분기
+### 2-4. 캔버스 리팩토링
+- [x] `LabelCanvas.tsx` SAM 3 클릭 기반으로 리팩토링
+- [x] 여러 객체 순차 라벨링 (클래스별 색상 구분)
+- [x] 객체별 polygon 오버레이
+- [x] 객체 선택/삭제 UI
 
-### 2-4. 이미지 네비게이션
-- [ ] `frontend/src/components/ImageNavigator.tsx` 생성
-- [ ] 이전/다음 프레임 이동 버튼
-- [ ] 현재 이미지 저장 여부 표시
-- [ ] 폴더 내 진행률 표시 (n/total)
-- [ ] 미저장 이동 시 경고 모달
+### 2-5. API 클라이언트 재작성
+- [x] `frontend/src/api/client.ts` SAM3 API 전용으로 재작성
+- [x] 폴더 브라우저 UI (App.tsx)
+- [x] Sidebar 재작성 (객체 목록 + 저장 버튼)
 
-### 2-5. 캔버스 리팩토링
-- [ ] `LabelCanvas.tsx` SAM 3 클릭 기반으로 리팩토링
-- [ ] 여러 객체 순차 라벨링 (클래스별 색상 구분)
-- [ ] 객체별 polygon 오버레이
-- [ ] 객체 선택/삭제 UI
-
-**Phase 2 완료 기준**: 클래스 선택 후 클릭 → SAM 3 polygon + 이미지 네비게이션 동작
+**Phase 2 완료 기준**: ✅ 클래스 선택 후 클릭 → SAM 3 polygon + 이미지 네비게이션 동작
 
 ---
 

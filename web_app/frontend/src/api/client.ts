@@ -1,22 +1,27 @@
 const BASE = "/api";
 
-export interface ImageInfo {
-  id: string;
+export const CLASSES = ["사람", "강아지", "로봇", "휠체어"] as const;
+export type ClassName = (typeof CLASSES)[number];
+
+export const CLASS_COLORS: Record<ClassName, string> = {
+  사람: "#4FC3F7",
+  강아지: "#81C784",
+  로봇: "#FFB74D",
+  휠체어: "#CE93D8",
+};
+
+export interface ImageEntry {
+  path: string;
   filename: string;
-  status: "pending" | "labeled" | "done";
+  saved: boolean;
 }
 
-export interface DetectionResult {
-  det_idx: number;
-  class_name: string;
-  bbox: [number, number, number, number];
+export interface SamObject {
+  obj_id: number;
+  class_name: ClassName;
   polygons: number[][];
-}
-
-export interface LabelRequest {
-  text_prompt: string;
-  box_threshold: number;
-  text_threshold: number;
+  click_count: number;
+  from_box: boolean;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -29,67 +34,71 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  uploadImages: (files: File[]): Promise<ImageInfo[]> => {
-    const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    return request("/upload", { method: "POST", body: fd });
-  },
+  listFolders: (root: string): Promise<{ path: string; folders: string[] }> =>
+    request(`/project/folders?root=${encodeURIComponent(root)}`),
 
-  listImages: (): Promise<ImageInfo[]> => request("/images"),
+  listImages: (
+    folder: string
+  ): Promise<{ folder: string; images: ImageEntry[]; total: number }> =>
+    request(`/project/images?folder=${encodeURIComponent(folder)}`),
 
-  labelImage: (id: string, req: LabelRequest): Promise<{ detections: DetectionResult[] }> =>
-    request(`/label/${id}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req),
-    }),
+  imageUrl: (imagePath: string): string =>
+    `${BASE}/project/image?path=${encodeURIComponent(imagePath)}`,
 
-  getLabelResult: (id: string): Promise<{ detections: DetectionResult[] }> =>
-    request(`/label/${id}`),
-
-  startBatch: (req: LabelRequest): Promise<{ ok: boolean }> =>
-    request("/label/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req),
-    }),
-
-  getBatchStatus: (): Promise<{ running: boolean; total: number; done: number; failed: number; current: string }> =>
-    request("/label/batch"),
-
-  addPoint: (
-    imageId: string,
-    detIdx: number,
+  samClick: (
+    imagePath: string,
     x: number,
     y: number,
-    label: 0 | 1
-  ): Promise<{ det_idx: number; polygons: number[][]; point_count: number }> =>
-    request(`/correct/${imageId}/${detIdx}`, {
+    label: number,
+    className: ClassName,
+    objId = -1
+  ): Promise<SamObject> =>
+    request("/sam/click", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ x, y, label }),
+      body: JSON.stringify({
+        image_path: imagePath,
+        x,
+        y,
+        label,
+        class_name: className,
+        obj_id: objId,
+      }),
     }),
 
-  resetCorrection: (
-    imageId: string,
-    detIdx: number
-  ): Promise<{ det_idx: number; polygons: number[][]; point_count: number }> =>
-    request(`/correct/${imageId}/${detIdx}`, { method: "DELETE" }),
+  getObjects: (
+    imagePath: string
+  ): Promise<{ objects: SamObject[]; saved: boolean }> =>
+    request(`/sam/objects?image_path=${encodeURIComponent(imagePath)}`),
 
-  deleteDetection: (
-    imageId: string,
-    detIdx: number
-  ): Promise<{ detections: DetectionResult[] }> =>
-    request(`/label/${imageId}/${detIdx}`, { method: "DELETE" }),
+  deleteObject: (
+    imagePath: string,
+    objId: number
+  ): Promise<{ ok: boolean }> =>
+    request("/sam/object", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_path: imagePath, obj_id: objId }),
+    }),
 
-  exportImage: (id: string): Promise<{ ok: boolean; lines: number }> =>
-    request(`/export/${id}`, { method: "POST" }),
+  clearObjects: (imagePath: string): Promise<{ ok: boolean }> =>
+    request(`/sam/objects?image_path=${encodeURIComponent(imagePath)}`, {
+      method: "DELETE",
+    }),
 
-  exportAll: (): Promise<{ ok: boolean; saved: number }> =>
-    request("/export/all", { method: "POST" }),
-
-  exportZipUrl: (): string => `${BASE}/export/zip`,
-
-  deleteImage: (id: string): Promise<{ ok: boolean }> =>
-    request(`/images/${id}`, { method: "DELETE" }),
+  saveLabel: (
+    imagePath: string,
+    force = false
+  ): Promise<{
+    ok?: boolean;
+    label_path?: string;
+    object_count?: number;
+    conflict?: boolean;
+    message?: string;
+  }> =>
+    request("/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_path: imagePath, force }),
+    }),
 };

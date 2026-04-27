@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
-import { api, DetectionResult, ImageInfo } from "./api/client";
-import Uploader from "./components/Uploader";
+import {
+  api,
+  CLASSES,
+  ClassName,
+  ImageEntry,
+  SamObject,
+} from "./api/client";
+import ClassSelector from "./components/ClassSelector";
+import ImageNavigator from "./components/ImageNavigator";
 import LabelCanvas from "./components/LabelCanvas";
+import ModeToggle, { LabelMode } from "./components/ModeToggle";
 import Sidebar from "./components/Sidebar";
 
-interface Point {
+interface ClickPoint {
   x: number;
   y: number;
   label: 0 | 1;
@@ -16,44 +24,35 @@ interface ImageMeta {
 }
 
 export default function App() {
-  const [images, setImages] = useState<ImageInfo[]>([]);
+  // Folder browser state
+  const [folderInput, setFolderInput] = useState("/home/sota");
+  const [subFolders, setSubFolders] = useState<string[]>([]);
+  const [folderError, setFolderError] = useState("");
+
+  // Project state
+  const [projectFolder, setProjectFolder] = useState<string | null>(null);
+  const [images, setImages] = useState<ImageEntry[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [detections, setDetections] = useState<DetectionResult[]>([]);
-  const [selectedDetIdx, setSelectedDetIdx] = useState<number | null>(null);
-  const [pointsPerDet, setPointsPerDet] = useState<Record<number, Point[]>>({});
   const [imageMeta, setImageMeta] = useState<ImageMeta | null>(null);
-  const [textPrompt, setTextPrompt] = useState("person . dog");
-  const [labelLoading, setLabelLoading] = useState(false);
+
+  // Labeling state
+  const [objects, setObjects] = useState<SamObject[]>([]);
+  const [selectedObjId, setSelectedObjId] = useState<number | null>(null);
+  const [clickPoints, setClickPoints] = useState<ClickPoint[]>([]);
+  const [selectedClass, setSelectedClass] = useState<ClassName>(CLASSES[0]);
+  const [mode, setMode] = useState<LabelMode>("sam");
+
+  // UI state
   const [statusMsg, setStatusMsg] = useState("");
-  const [batchRunning, setBatchRunning] = useState(false);
-  const [batchProgress, setBatchProgress] = useState({ total: 0, done: 0, failed: 0, current: "" });
-
-  useEffect(() => {
-    api.listImages().then((list) => {
-      if (list.length > 0) setImages(list);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!batchRunning) return;
-    const id = setInterval(async () => {
-      try {
-        const [s, list] = await Promise.all([api.getBatchStatus(), api.listImages()]);
-        setBatchProgress({ total: s.total, done: s.done, failed: s.failed, current: s.current });
-        setImages(list);
-        if (!s.running) {
-          setBatchRunning(false);
-          setStatusMsg(`배치 완료: ${s.done}개 성공, ${s.failed}개 실패`);
-        }
-      } catch {}
-    }, 3000);
-    return () => clearInterval(id);
-  }, [batchRunning]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const unsaved = objects.length > 0 && !saved;
 
   const currentImage = images[currentIdx] ?? null;
-  const imageUrl = currentImage ? `/api/images/${currentImage.id}/file` : null;
-  const currentPoints = selectedDetIdx !== null ? (pointsPerDet[selectedDetIdx] ?? []) : [];
+  const imageUrl = currentImage ? api.imageUrl(currentImage.path) : null;
 
+  // Load image dimensions
   useEffect(() => {
     if (!imageUrl) { setImageMeta(null); return; }
     const img = new Image();
@@ -61,237 +60,390 @@ export default function App() {
     img.src = imageUrl;
   }, [imageUrl]);
 
+  // Load objects when image changes
   useEffect(() => {
-    setDetections([]);
-    setSelectedDetIdx(null);
-    setPointsPerDet({});
+    if (!currentImage) { setObjects([]); setSaved(false); setClickPoints([]); setSelectedObjId(null); return; }
+    api.getObjects(currentImage.path)
+      .then((r) => {
+        setObjects(r.objects);
+        setSaved(r.saved);
+        setClickPoints([]);
+        setSelectedObjId(null);
+      })
+      .catch(() => { setObjects([]); setSaved(false); });
+  }, [currentImage?.path]);
 
-    if (!currentImage || currentImage.status === "pending") return;
-
-    api.getLabelResult(currentImage.id)
-      .then((r) => setDetections(r.detections))
-      .catch(() => {});
-  }, [currentImage?.id]);
-
+  // Ctrl+S to save
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-      }
+      if (e.ctrlKey && e.key === "s") { e.preventDefault(); handleSave(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  });
 
-  const handleUploaded = (newImages: ImageInfo[]) => {
-    setImages((prev) => {
-      const existingIds = new Set(prev.map((i) => i.id));
-      const fresh = newImages.filter((i) => !existingIds.has(i.id));
-      return [...prev, ...fresh];
-    });
-  };
-
-  const handleStartBatch = async () => {
+  const handleFolderBrowse = async () => {
+    setFolderError("");
     try {
-      await api.startBatch({ text_prompt: textPrompt, box_threshold: 0.35, text_threshold: 0.25 });
-      setBatchRunning(true);
-      setBatchProgress({ total: 0, done: 0, failed: 0, current: "" });
-      setStatusMsg("배치 라벨링 시작...");
-    } catch (e) {
-      setStatusMsg(`배치 오류: ${e}`);
+      const result = await api.listFolders(folderInput);
+      setSubFolders(result.folders);
+    } catch {
+      setFolderError("폴더를 열 수 없습니다.");
+      setSubFolders([]);
     }
   };
 
-  const handleRunLabel = async () => {
-    if (!currentImage) return;
-    setLabelLoading(true);
-    setStatusMsg("라벨링 중...");
+  const handleSelectFolder = async (folder: string) => {
+    setLoading(true);
     try {
-      const result = await api.labelImage(currentImage.id, {
-        text_prompt: textPrompt,
-        box_threshold: 0.35,
-        text_threshold: 0.25,
-      });
-      setDetections(result.detections);
-      setSelectedDetIdx(null);
-      setPointsPerDet({});
-      setImages((prev) =>
-        prev.map((img) =>
-          img.id === currentImage.id ? { ...img, status: "labeled" } : img
-        )
-      );
-      setStatusMsg(`완료: ${result.detections.length}개 객체 감지`);
-    } catch (e) {
-      setStatusMsg(`오류: ${e}`);
+      const result = await api.listImages(folder);
+      setProjectFolder(folder);
+      setImages(result.images);
+      setCurrentIdx(0);
+      setObjects([]);
+      setSaved(false);
+      setClickPoints([]);
+      setSelectedObjId(null);
+      setStatusMsg(`${result.total}개 이미지 로드됨`);
+    } catch {
+      setFolderError("이미지 목록을 불러올 수 없습니다.");
     } finally {
-      setLabelLoading(false);
+      setLoading(false);
     }
+  };
+
+  const handleNavigate = (idx: number) => {
+    setCurrentIdx(idx);
   };
 
   const handleCanvasClick = async (x: number, y: number, label: 0 | 1) => {
-    if (!currentImage || selectedDetIdx === null) return;
+    if (!currentImage) return;
 
-    setPointsPerDet((prev) => ({
-      ...prev,
-      [selectedDetIdx]: [...(prev[selectedDetIdx] ?? []), { x, y, label }],
-    }));
+    // Optimistic: add point visually
+    const newPoint: ClickPoint = { x, y, label };
+    setClickPoints((prev) => [...prev, newPoint]);
 
     try {
-      const result = await api.addPoint(currentImage.id, selectedDetIdx, x, y, label);
-      setDetections((prev) =>
-        prev.map((d) =>
-          d.det_idx === result.det_idx ? { ...d, polygons: result.polygons } : d
-        )
+      const result = await api.samClick(
+        currentImage.path, x, y, label, selectedClass,
+        selectedObjId !== null ? selectedObjId : -1
       );
+      setObjects((prev) => {
+        const exists = prev.find((o) => o.obj_id === result.obj_id);
+        if (exists) return prev.map((o) => o.obj_id === result.obj_id ? result : o);
+        return [...prev, result];
+      });
+      setSelectedObjId(result.obj_id);
+      setSaved(false);
+      setStatusMsg(`${result.class_name} #${result.obj_id} — 클릭 ${result.click_count}회`);
     } catch (e) {
-      setStatusMsg(`수정 오류: ${e}`);
-      setPointsPerDet((prev) => ({
-        ...prev,
-        [selectedDetIdx]: (prev[selectedDetIdx] ?? []).slice(0, -1),
-      }));
+      // Roll back optimistic point
+      setClickPoints((prev) => prev.slice(0, -1));
+      setStatusMsg(`오류: ${e}`);
     }
   };
 
-  const handleDetectionSelect = (detIdx: number) => {
-    setSelectedDetIdx((prev) => (prev === detIdx ? null : detIdx));
-    setStatusMsg(`${detections.find((d) => d.det_idx === detIdx)?.class_name ?? ""} 선택됨 — 좌클릭(+) 우클릭(−)으로 마스크 수정`);
+  const handleObjectSelect = (objId: number) => {
+    setSelectedObjId((prev) => prev === objId ? null : objId);
+    setClickPoints([]);
+    const obj = objects.find((o) => o.obj_id === objId);
+    if (obj) setStatusMsg(`${obj.class_name} #${objId} 선택 — 좌클릭(+) 우클릭(−)`);
   };
 
-  const handleDeleteDetection = async (detIdx: number) => {
+  const handleDelete = async (objId: number) => {
     if (!currentImage) return;
     try {
-      const result = await api.deleteDetection(currentImage.id, detIdx);
-      setDetections(result.detections);
-      setSelectedDetIdx(null);
-      setPointsPerDet({});
-      setStatusMsg(`Detection #${detIdx} 삭제됨`);
+      await api.deleteObject(currentImage.path, objId);
+      setObjects((prev) => prev.filter((o) => o.obj_id !== objId));
+      if (selectedObjId === objId) { setSelectedObjId(null); setClickPoints([]); }
+      setSaved(false);
+      setStatusMsg(`객체 #${objId} 삭제`);
     } catch (e) {
       setStatusMsg(`삭제 오류: ${e}`);
     }
   };
 
-  const handleReset = async (detIdx: number) => {
+  const handleClear = async () => {
     if (!currentImage) return;
+    if (!window.confirm("이 이미지의 모든 객체를 초기화할까요?")) return;
     try {
-      const result = await api.resetCorrection(currentImage.id, detIdx);
-      setDetections((prev) =>
-        prev.map((d) =>
-          d.det_idx === result.det_idx ? { ...d, polygons: result.polygons } : d
-        )
-      );
-      setPointsPerDet((prev) => { const n = { ...prev }; delete n[detIdx]; return n; });
-      setStatusMsg("포인트 초기화 완료");
+      await api.clearObjects(currentImage.path);
+      setObjects([]);
+      setSelectedObjId(null);
+      setClickPoints([]);
+      setSaved(false);
+      setStatusMsg("전체 초기화 완료");
     } catch (e) {
       setStatusMsg(`초기화 오류: ${e}`);
     }
   };
 
   const handleSave = async () => {
+    if (!currentImage || objects.length === 0) return;
+    setSaving(true);
     try {
-      const result = await api.exportAll();
-      const list = await api.listImages();
-      setImages(list);
-      setStatusMsg(`전체 저장 완료 (${result.saved}개 파일)`);
+      const result = await api.saveLabel(currentImage.path, false);
+      if (result.conflict) {
+        if (!window.confirm(result.message + "\n덮어쓰시겠습니까?")) {
+          setSaving(false); return;
+        }
+        const force = await api.saveLabel(currentImage.path, true);
+        if (force.ok) {
+          setSaved(true);
+          setImages((prev) =>
+            prev.map((img, i) => i === currentIdx ? { ...img, saved: true } : img)
+          );
+          setStatusMsg(`저장 완료 — ${force.object_count}개 객체`);
+        }
+      } else if (result.ok) {
+        setSaved(true);
+        setImages((prev) =>
+          prev.map((img, i) => i === currentIdx ? { ...img, saved: true } : img)
+        );
+        setStatusMsg(`저장 완료 — ${result.object_count}개 객체`);
+      }
     } catch (e) {
       setStatusMsg(`저장 오류: ${e}`);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleExportZip = () => {
-    window.location.href = api.exportZipUrl();
+  const handleNewObject = () => {
+    setSelectedObjId(null);
+    setClickPoints([]);
+    setStatusMsg(`새 ${selectedClass} 객체 — 캔버스를 클릭하세요`);
   };
 
-  const goTo = (idx: number) => {
-    const clamped = Math.max(0, Math.min(images.length - 1, idx));
-    setCurrentIdx(clamped);
-  };
+  // ─── Folder Browser ────────────────────────────────────────────────────────
+  if (!projectFolder) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0d0d1a",
+          color: "#ddd",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          padding: 32,
+        }}
+      >
+        <h2 style={{ color: "#90caf9", margin: 0 }}>SAM3 Auto Labeling</h2>
+        <p style={{ color: "#888", margin: 0 }}>이미지가 있는 프로젝트 폴더를 선택하세요</p>
 
-  return (
-    <div style={{ display: "flex", width: "100vw", minHeight: "100vh", overflow: "hidden" }}>
-      <Sidebar
-        detections={detections}
-        selectedDetIdx={selectedDetIdx}
-        pointCount={currentPoints.length}
-        onSelect={handleDetectionSelect}
-        onReset={handleReset}
-        onDelete={handleDeleteDetection}
-        onSave={handleSave}
-        onExportZip={handleExportZip}
-        textPrompt={textPrompt}
-        onTextPromptChange={setTextPrompt}
-        onRunLabel={handleRunLabel}
-        labelLoading={labelLoading}
-        onStartBatch={handleStartBatch}
-        batchRunning={batchRunning}
-        batchProgress={batchProgress}
-      />
+        <div style={{ display: "flex", gap: 8, width: "100%", maxWidth: 600 }}>
+          <input
+            value={folderInput}
+            onChange={(e) => setFolderInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleFolderBrowse()}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              background: "#1a1a2e",
+              border: "1px solid #3a3a5e",
+              borderRadius: 6,
+              color: "#ddd",
+              fontSize: 13,
+            }}
+          />
+          <button
+            onClick={handleFolderBrowse}
+            disabled={loading}
+            style={{
+              padding: "8px 16px",
+              background: "#1565C0",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            탐색
+          </button>
+        </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 16, gap: 12 }}>
-        <Uploader onUploaded={handleUploaded} />
+        {folderError && <div style={{ color: "#ef5350", fontSize: 13 }}>{folderError}</div>}
 
-        {images.length > 0 && (
-          <div style={{ textAlign: "center", fontSize: 14 }}>
-            {currentImage?.filename ?? "-"}
-            {" "}
-            <span style={{ color: statusColor(currentImage?.status) }}>
-              [{currentImage?.status ?? ""}]
-            </span>
+        {subFolders.length > 0 && (
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 600,
+              background: "#1a1a2e",
+              border: "1px solid #2a2a4e",
+              borderRadius: 8,
+              maxHeight: 320,
+              overflowY: "auto",
+            }}
+          >
+            {/* 현재 폴더 직접 열기 */}
+            <div
+              onClick={() => handleSelectFolder(folderInput)}
+              style={{
+                padding: "10px 16px",
+                cursor: "pointer",
+                borderBottom: "1px solid #2a2a4e",
+                color: "#90caf9",
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              📂 현재 폴더 열기: {folderInput}
+            </div>
+            {subFolders.map((f) => (
+              <div
+                key={f}
+                style={{
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                  borderBottom: "1px solid #1e1e3e",
+                  fontSize: 13,
+                  color: "#ccc",
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#252540")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <span
+                  onClick={() => { setFolderInput(f); setSubFolders([]); }}
+                >
+                  📁 {f.split("/").pop()}
+                </span>
+                <button
+                  onClick={() => handleSelectFolder(f)}
+                  style={{
+                    padding: "2px 10px",
+                    background: "#1565C0",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 11,
+                  }}
+                >
+                  열기
+                </button>
+              </div>
+            ))}
           </div>
         )}
+      </div>
+    );
+  }
 
-        {imageUrl && imageMeta ? (
-          <div style={{ background: "#111", borderRadius: 8, overflow: "hidden", height: "calc(100vh - 260px)", minHeight: 300 }}>
+  // ─── Main Labeling UI ──────────────────────────────────────────────────────
+  return (
+    <div style={{ display: "flex", width: "100vw", height: "100vh", overflow: "hidden", background: "#0d0d1a" }}>
+      <Sidebar
+        objects={objects}
+        selectedObjId={selectedObjId}
+        onSelect={handleObjectSelect}
+        onDelete={handleDelete}
+        onClear={handleClear}
+        onSave={handleSave}
+        onNewObject={handleNewObject}
+        saving={saving}
+        saved={saved}
+      />
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Top toolbar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            padding: "8px 16px",
+            background: "#12121f",
+            borderBottom: "1px solid #2a2a3e",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={() => setProjectFolder(null)}
+            style={{
+              padding: "4px 10px",
+              background: "none",
+              color: "#78909c",
+              border: "1px solid #444",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            ← 폴더 변경
+          </button>
+
+          <ClassSelector selected={selectedClass} onChange={(cls) => { setSelectedClass(cls); setSelectedObjId(null); setClickPoints([]); }} />
+          <ModeToggle mode={mode} onChange={setMode} />
+        </div>
+
+        {/* Image navigator */}
+        <div
+          style={{
+            padding: "8px 16px",
+            background: "#0f0f1e",
+            borderBottom: "1px solid #1e1e3e",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <ImageNavigator
+            images={images}
+            currentIdx={currentIdx}
+            onNavigate={handleNavigate}
+            unsaved={unsaved}
+          />
+        </div>
+
+        {/* Canvas area */}
+        <div style={{ flex: 1, overflow: "hidden", background: "#111" }}>
+          {imageUrl && imageMeta ? (
             <LabelCanvas
               imageUrl={imageUrl}
               imageW={imageMeta.w}
               imageH={imageMeta.h}
-              detections={detections}
-              selectedDetIdx={selectedDetIdx}
-              points={currentPoints}
+              objects={objects}
+              selectedObjId={selectedObjId}
+              clickPoints={clickPoints}
               onCanvasClick={handleCanvasClick}
-              onDetectionSelect={handleDetectionSelect}
+              onObjectSelect={handleObjectSelect}
             />
-          </div>
-        ) : (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#555" }}>
-            이미지를 업로드하세요
-          </div>
-        )}
+          ) : (
+            <div
+              style={{
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#444",
+                fontSize: 14,
+              }}
+            >
+              {images.length === 0 ? "이미지가 없습니다" : "이미지 로딩 중..."}
+            </div>
+          )}
+        </div>
 
-        {images.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <button onClick={() => goTo(0)} disabled={currentIdx === 0} style={navBtn}>◀◀ 맨앞</button>
-            <button onClick={() => goTo(currentIdx - 1)} disabled={currentIdx === 0} style={navBtn}>◀ 이전</button>
-            <span style={{ fontSize: 13, color: "#aaa", minWidth: 80, textAlign: "center" }}>
-              {currentIdx + 1} / {images.length}
-            </span>
-            <button onClick={() => goTo(currentIdx + 1)} disabled={currentIdx >= images.length - 1} style={navBtn}>다음 ▶</button>
-            <button onClick={() => goTo(images.length - 1)} disabled={currentIdx >= images.length - 1} style={navBtn}>맨뒤 ▶▶</button>
-          </div>
-        )}
-
+        {/* Status bar */}
         {statusMsg && (
-          <div style={{ fontSize: 12, color: "#aaa", padding: "4px 8px", background: "#16213e", borderRadius: 4 }}>
+          <div
+            style={{
+              padding: "4px 16px",
+              background: "#12121f",
+              borderTop: "1px solid #1e1e3e",
+              fontSize: 12,
+              color: "#90a4ae",
+            }}
+          >
             {statusMsg}
           </div>
         )}
       </div>
     </div>
   );
-}
-
-const navBtn: React.CSSProperties = {
-  padding: "6px 16px",
-  background: "#1e3a5f",
-  color: "#e0e0e0",
-  border: "1px solid #444",
-  borderRadius: 6,
-  cursor: "pointer",
-};
-
-function statusColor(status?: string): string {
-  if (status === "done") return "#66bb6a";
-  if (status === "labeled") return "#ffa726";
-  return "#78909c";
 }
