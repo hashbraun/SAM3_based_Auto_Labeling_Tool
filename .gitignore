@@ -1,0 +1,11 @@
+*.pth
+*.pt
+checkpoints/
+web_app/backend/.venv/
+web_app/backend/.env
+web_app/frontend/node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+web_app/backend/exports/
+web_app/backend/uploads/

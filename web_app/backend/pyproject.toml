@@ -1,0 +1,21 @@
+[project]
+name = "sam-labeling-web"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    # torch, segment-anything, groundingdino-py: conda 환경에 설치된 것 사용
+    "groundingdino-py>=0.4.0",
+    "opencv-python-headless>=4.13.0.92",
+    "segment-anything>=1.0",
+    "transformers==4.38.2",
+]
+
+# ⚠️  uv run 대신 conda 환경에서 직접 실행:
+#   pip install fastapi "uvicorn[standard]" python-multipart pillow
+#   uvicorn main:app --reload --port 8000
