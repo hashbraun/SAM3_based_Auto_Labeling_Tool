@@ -25,7 +25,7 @@ interface ImageMeta {
 
 export default function App() {
   // Folder browser state
-  const [folderInput, setFolderInput] = useState("/home/sota");
+  const [folderInput, setFolderInput] = useState("/nas03");
   const [subFolders, setSubFolders] = useState<string[]>([]);
   const [folderError, setFolderError] = useState("");
 
