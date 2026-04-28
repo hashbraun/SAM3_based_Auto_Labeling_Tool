@@ -34,9 +34,9 @@ class SAM3Service:
         print(f"SAM3 loaded: {Path(checkpoint).name} on {device}")
 
     def set_image(self, image_key: str, image_rgb: np.ndarray) -> None:
-        if self._current_image_key == image_key:
-            return
         with self._infer_lock:
+            if self._current_image_key == image_key:
+                return
             self._predictor.set_image(image_rgb)
             self._current_image_key = image_key
 

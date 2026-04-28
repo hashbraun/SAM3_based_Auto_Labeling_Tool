@@ -14,11 +14,12 @@ CLASS_INDEX = {cls: idx for idx, cls in enumerate(CLASSES)}
 class ClickState:
     """SAM3 누적 클릭 상태 (객체 1개)"""
     class_name: str
-    initial_box: Optional[list[int]] = None                 # YOLO bbox [x1,y1,x2,y2] (픽셀)
-    coords: list[list[int]] = field(default_factory=list)  # [[x, y], ...]
-    labels: list[int] = field(default_factory=list)         # 1=positive, 0=negative
-    prev_logits: Optional[np.ndarray] = None                # (1, 256, 256)
-    mask: Optional[np.ndarray] = None                       # (H, W) bool
+    initial_box: Optional[list[int]] = None                  # YOLO bbox [x1,y1,x2,y2] (픽셀)
+    coords: list[list[int]] = field(default_factory=list)    # [[x, y], ...]
+    labels: list[int] = field(default_factory=list)          # 1=positive, 0=negative
+    prev_logits: Optional[np.ndarray] = None                 # (1, 256, 256)
+    mask: Optional[np.ndarray] = None                        # (H, W) bool
+    polygon: Optional[list[float]] = None                    # YOLO guide 직접 polygon (normalized flat)
 
 
 @dataclass

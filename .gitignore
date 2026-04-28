@@ -1,9 +1,14 @@
 *.pth
 *.pt
 checkpoints/
+runs/
+datasets/
+logs/
 web_app/backend/.venv/
 web_app/backend/.env
+web_app/backend/.train_state
 web_app/frontend/node_modules/
+web_app/frontend/dist/
 __pycache__/
 *.pyc
 .DS_Store

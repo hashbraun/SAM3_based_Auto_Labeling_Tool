@@ -7,11 +7,11 @@ export default defineConfig({
     host: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://localhost:8001",
         timeout: 600000,
         proxyTimeout: 600000,
       },
-      "/uploads": "http://localhost:8000",
+      "/uploads": "http://localhost:8001",
     },
   },
 });

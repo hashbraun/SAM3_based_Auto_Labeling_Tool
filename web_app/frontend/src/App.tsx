@@ -3,10 +3,12 @@ import {
   api,
   CLASSES,
   ClassName,
+  GuideObject,
   ImageEntry,
   SamObject,
 } from "./api/client";
 import ClassSelector from "./components/ClassSelector";
+import GuidePanel from "./components/GuidePanel";
 import ImageNavigator from "./components/ImageNavigator";
 import LabelCanvas from "./components/LabelCanvas";
 import ModeToggle, { LabelMode } from "./components/ModeToggle";
@@ -46,6 +48,7 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
   const [loading, setLoading] = useState(false);
   const unsaved = objects.length > 0 && !saved;
 
@@ -73,10 +76,13 @@ export default function App() {
       .catch(() => { setObjects([]); setSaved(false); });
   }, [currentImage?.path]);
 
-  // Ctrl+S to save
+  // 키보드 단축키
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "s") { e.preventDefault(); handleSave(); }
+      if (e.ctrlKey && e.key === "s") { e.preventDefault(); handleSave(); return; }
+      if (e.key === "ArrowRight") { e.preventDefault(); if (currentIdx < images.length - 1) handleNavigate(currentIdx + 1); }
+      if (e.key === "ArrowLeft")  { e.preventDefault(); if (currentIdx > 0) handleNavigate(currentIdx - 1); }
+      if (e.key === "f" || e.key === "F") { e.preventDefault(); handleNewObject(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -209,6 +215,25 @@ export default function App() {
     }
   };
 
+  const handleSaveAll = async () => {
+    setSavingAll(true);
+    try {
+      const r = await api.saveAll(true);
+      if (projectFolder) {
+        const result = await api.listImages(projectFolder);
+        setImages(result.images);
+      }
+      if (currentImage) {
+        api.getObjects(currentImage.path).then((res) => setSaved(res.saved));
+      }
+      setStatusMsg(`전체 저장 완료 — ${r.saved}장 저장, ${r.skipped}장 skip`);
+    } catch (e) {
+      setStatusMsg(`전체 저장 오류: ${e}`);
+    } finally {
+      setSavingAll(false);
+    }
+  };
+
   const handleNewObject = () => {
     setSelectedObjId(null);
     setClickPoints([]);
@@ -216,6 +241,41 @@ export default function App() {
   };
 
   // ─── Folder Browser ────────────────────────────────────────────────────────
+  const [browserTab, setBrowserTab] = useState<"server" | "upload">("server");
+  const [uploadFolderName, setUploadFolderName] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  // 업로드 탭 전용 폴더 탐색기
+  const [uploadBrowsePath, setUploadBrowsePath] = useState("/nas03");
+  const [uploadBrowseFolders, setUploadBrowseFolders] = useState<string[]>([]);
+  const [uploadBrowseError, setUploadBrowseError] = useState("");
+  const [uploadBrowseOpen, setUploadBrowseOpen] = useState(false);
+
+  const browseUploadPath = async (path: string) => {
+    setUploadBrowseError("");
+    try {
+      const result = await api.listFolders(path);
+      setUploadBrowsePath(path);
+      setUploadBrowseFolders(result.folders);
+      setUploadBrowseOpen(true);
+    } catch {
+      setUploadBrowseError("폴더를 열 수 없습니다.");
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !uploadFolderName.trim()) return;
+    setUploading(true);
+    try {
+      const result = await api.uploadImages(uploadFolderName.trim(), e.target.files);
+      await handleSelectFolder(result.folder);
+    } catch {
+      setFolderError("업로드 실패");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (!projectFolder) {
     return (
       <div
@@ -234,106 +294,202 @@ export default function App() {
         <h2 style={{ color: "#90caf9", margin: 0 }}>SAM3 Auto Labeling</h2>
         <p style={{ color: "#888", margin: 0 }}>이미지가 있는 프로젝트 폴더를 선택하세요</p>
 
-        <div style={{ display: "flex", gap: 8, width: "100%", maxWidth: 600 }}>
-          <input
-            value={folderInput}
-            onChange={(e) => setFolderInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleFolderBrowse()}
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              background: "#1a1a2e",
-              border: "1px solid #3a3a5e",
-              borderRadius: 6,
-              color: "#ddd",
-              fontSize: 13,
-            }}
-          />
-          <button
-            onClick={handleFolderBrowse}
-            disabled={loading}
-            style={{
-              padding: "8px 16px",
-              background: "#1565C0",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              cursor: "pointer",
-            }}
-          >
-            탐색
-          </button>
-        </div>
-
-        {folderError && <div style={{ color: "#ef5350", fontSize: 13 }}>{folderError}</div>}
-
-        {subFolders.length > 0 && (
-          <div
-            style={{
-              width: "100%",
-              maxWidth: 600,
-              background: "#1a1a2e",
-              border: "1px solid #2a2a4e",
-              borderRadius: 8,
-              maxHeight: 320,
-              overflowY: "auto",
-            }}
-          >
-            {/* 현재 폴더 직접 열기 */}
-            <div
-              onClick={() => handleSelectFolder(folderInput)}
+        {/* 탭 */}
+        <div style={{ display: "flex", gap: 0, width: "100%", maxWidth: 600 }}>
+          {(["server", "upload"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setBrowserTab(tab)}
               style={{
-                padding: "10px 16px",
-                cursor: "pointer",
-                borderBottom: "1px solid #2a2a4e",
-                color: "#90caf9",
-                fontSize: 13,
-                fontWeight: 600,
+                flex: 1, padding: "8px 0", fontSize: 13, cursor: "pointer", border: "none",
+                background: browserTab === tab ? "#1565C0" : "#1a1a2e",
+                color: browserTab === tab ? "#fff" : "#888",
+                borderBottom: browserTab === tab ? "2px solid #42a5f5" : "2px solid transparent",
               }}
             >
-              📂 현재 폴더 열기: {folderInput}
-            </div>
-            {subFolders.map((f) => (
-              <div
-                key={f}
-                style={{
-                  padding: "8px 16px",
-                  cursor: "pointer",
-                  borderBottom: "1px solid #1e1e3e",
-                  fontSize: 13,
-                  color: "#ccc",
-                  display: "flex",
-                  justifyContent: "space-between",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#252540")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              >
-                <span
-                  onClick={() => { setFolderInput(f); setSubFolders([]); }}
-                >
-                  📁 {f.split("/").pop()}
-                </span>
+              {tab === "server" ? "서버 폴더" : "내 PC 업로드"}
+            </button>
+          ))}
+        </div>
+
+        {browserTab === "upload" ? (
+          <div style={{ width: "100%", maxWidth: 600, background: "#1a1a2e", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* 저장 경로 선택 */}
+            <div style={{ color: "#aaa", fontSize: 13 }}>
+              저장 경로
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <input
+                  value={uploadFolderName}
+                  onChange={(e) => setUploadFolderName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && browseUploadPath(uploadFolderName || uploadBrowsePath)}
+                  placeholder="/nas03/1_EV_LABELING/my_folder"
+                  style={{ flex: 1, padding: "8px 12px", background: "#111", border: `1px solid ${uploadFolderName.trim() ? "#1565C0" : "#333"}`, borderRadius: 6, color: "#ddd", fontSize: 13, boxSizing: "border-box" }}
+                />
                 <button
-                  onClick={() => handleSelectFolder(f)}
-                  style={{
-                    padding: "2px 10px",
-                    background: "#1565C0",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontSize: 11,
-                  }}
+                  onClick={() => browseUploadPath(uploadFolderName.trim() || uploadBrowsePath)}
+                  style={{ padding: "8px 12px", background: "#1565C0", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}
                 >
-                  열기
+                  탐색
                 </button>
               </div>
-            ))}
+            </div>
+
+            {/* 인라인 폴더 탐색기 */}
+            {uploadBrowseOpen && (
+              <div style={{ background: "#111", border: "1px solid #2a2a4e", borderRadius: 8, overflow: "hidden" }}>
+                {/* 경로 헤더 */}
+                <div style={{ padding: "8px 12px", background: "#0d0d1a", borderBottom: "1px solid #2a2a4e", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "#888", fontSize: 11, flex: 1, wordBreak: "break-all" }}>{uploadBrowsePath}</span>
+                  {uploadBrowsePath !== "/" && (
+                    <button
+                      onClick={() => browseUploadPath(uploadBrowsePath.split("/").slice(0, -1).join("/") || "/")}
+                      style={{ padding: "2px 8px", background: "none", color: "#90caf9", border: "1px solid #2a4a6a", borderRadius: 4, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+                    >
+                      ↑ 상위
+                    </button>
+                  )}
+                </div>
+
+                {/* 현재 폴더 선택 */}
+                <div
+                  onClick={() => { setUploadFolderName(uploadBrowsePath); setUploadBrowseOpen(false); }}
+                  style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1e1e3e", color: "#81c784", fontSize: 12, fontWeight: 600 }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#1a2a1a")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  ✓ 여기에 저장: {uploadBrowsePath.split("/").pop() || "/"}
+                </div>
+
+                {/* 하위 폴더 목록 */}
+                <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {uploadBrowseFolders.length === 0 ? (
+                    <div style={{ padding: "12px", color: "#555", fontSize: 12, textAlign: "center" }}>하위 폴더 없음</div>
+                  ) : (
+                    uploadBrowseFolders.map((f) => (
+                      <div
+                        key={f}
+                        style={{ padding: "7px 12px", cursor: "pointer", borderBottom: "1px solid #1a1a2e", fontSize: 12, color: "#ccc", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#1a1a3e")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <span onClick={() => browseUploadPath(f)}>📁 {f.split("/").pop()}</span>
+                        <button
+                          onClick={() => { setUploadFolderName(f); setUploadBrowseOpen(false); }}
+                          style={{ padding: "2px 8px", background: "#1565C0", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+                        >
+                          선택
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {uploadBrowseError && <div style={{ padding: "8px 12px", color: "#ef5350", fontSize: 12 }}>{uploadBrowseError}</div>}
+              </div>
+            )}
+
+            {/* 파일 선택 */}
+            <label style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "20px", border: "2px dashed #2a2a5e", borderRadius: 8,
+              cursor: uploadFolderName.trim() ? "pointer" : "not-allowed",
+              color: uploadFolderName.trim() ? "#90caf9" : "#555",
+              fontSize: 13, gap: 8,
+            }}>
+              {uploading ? "업로드 중..." : "📁 이미지 파일 선택 (여러 개 가능)"}
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.bmp,.webp"
+                multiple
+                disabled={!uploadFolderName.trim() || uploading}
+                onChange={handleUpload}
+                style={{ display: "none" }}
+              />
+            </label>
+            {uploadFolderName.trim() && (
+              <div style={{ color: "#555", fontSize: 11 }}>저장 위치: {uploadFolderName}</div>
+            )}
+            {folderError && <div style={{ color: "#ef5350", fontSize: 13 }}>{folderError}</div>}
           </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8, width: "100%", maxWidth: 600 }}>
+              <input
+                value={folderInput}
+                onChange={(e) => setFolderInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleFolderBrowse()}
+                style={{
+                  flex: 1, padding: "8px 12px", background: "#1a1a2e",
+                  border: "1px solid #3a3a5e", borderRadius: 6, color: "#ddd", fontSize: 13,
+                }}
+              />
+              <button
+                onClick={handleFolderBrowse}
+                disabled={loading}
+                style={{ padding: "8px 16px", background: "#1565C0", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}
+              >
+                탐색
+              </button>
+            </div>
+
+            {folderError && <div style={{ color: "#ef5350", fontSize: 13 }}>{folderError}</div>}
+
+            {subFolders.length > 0 && (
+              <div style={{ width: "100%", maxWidth: 600, background: "#1a1a2e", border: "1px solid #2a2a4e", borderRadius: 8, maxHeight: 320, overflowY: "auto" }}>
+                <div
+                  onClick={() => handleSelectFolder(folderInput)}
+                  style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #2a2a4e", color: "#90caf9", fontSize: 13, fontWeight: 600 }}
+                >
+                  📂 현재 폴더 열기: {folderInput}
+                </div>
+                {subFolders.map((f) => (
+                  <div
+                    key={f}
+                    style={{ padding: "8px 16px", cursor: "pointer", borderBottom: "1px solid #1e1e3e", fontSize: 13, color: "#ccc", display: "flex", justifyContent: "space-between" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#252540")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span
+                      onClick={async () => {
+                        setFolderInput(f);
+                        try {
+                          const result = await api.listFolders(f);
+                          setSubFolders(result.folders);
+                        } catch {
+                          setSubFolders([]);
+                        }
+                      }}
+                    >
+                      📁 {f.split("/").pop()}
+                    </span>
+                    <button
+                      onClick={() => handleSelectFolder(f)}
+                      style={{ padding: "2px 10px", background: "#1565C0", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11 }}
+                    >
+                      열기
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     );
   }
+
+  const handleGuideAccept = async (guideObjects: GuideObject[]) => {
+    if (!currentImage) return;
+    const payload = guideObjects.map((o) => ({ class_name: o.class_name, polygon: o.polygon }));
+    try {
+      await api.guideAccept(currentImage.path, payload);
+      const r = await api.getObjects(currentImage.path);
+      setObjects(r.objects);
+      setSaved(false);
+      setStatusMsg(`Guide 객체 ${guideObjects.length}개 적용됨`);
+    } catch (e) {
+      setStatusMsg(`Guide 적용 오류: ${e}`);
+    }
+  };
 
   // ─── Main Labeling UI ──────────────────────────────────────────────────────
   return (
@@ -379,7 +535,24 @@ export default function App() {
           </button>
 
           <ClassSelector selected={selectedClass} onChange={(cls) => { setSelectedClass(cls); setSelectedObjId(null); setClickPoints([]); }} />
-          <ModeToggle mode={mode} onChange={setMode} />
+          <ModeToggle mode={mode} onChange={setMode} yoloAvailable={true} />
+          <button
+            onClick={handleSaveAll}
+            disabled={savingAll}
+            style={{
+              marginLeft: "auto",
+              padding: "4px 14px",
+              background: "#1565C0",
+              color: "#90caf9",
+              border: "1px solid #1976D2",
+              borderRadius: 6,
+              cursor: savingAll ? "not-allowed" : "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {savingAll ? "저장 중..." : "전체 저장"}
+          </button>
         </div>
 
         {/* Image navigator */}
@@ -444,6 +617,34 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* YOLO Guide 우측 패널 */}
+      {mode === "yolo_guide" && (
+        <div
+          style={{
+            width: 220,
+            background: "#12121f",
+            borderLeft: "1px solid #2a2a3e",
+            overflowY: "auto",
+            padding: 12,
+            flexShrink: 0,
+          }}
+        >
+          <GuidePanel
+            imagePath={currentImage?.path ?? ""}
+            folder={projectFolder ?? ""}
+            onAccept={handleGuideAccept}
+            onBatchDone={() => {
+              if (currentImage) {
+                api.getObjects(currentImage.path).then((r) => {
+                  setObjects(r.objects);
+                  setSaved(r.saved);
+                });
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

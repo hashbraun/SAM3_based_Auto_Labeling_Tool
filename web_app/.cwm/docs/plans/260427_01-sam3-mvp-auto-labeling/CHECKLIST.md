@@ -78,66 +78,81 @@
 
 ---
 
-## Phase 3: YOLO Guide Labeling
+## Phase 3: YOLO Guide Labeling ✅ 완료
 
 ### 3-1. YOLO 학습 서비스
-- [ ] `services/yolo_service.py` 생성
-- [ ] ultralytics YOLO Seg 학습 래퍼 구현
-- [ ] 백그라운드 스레드 학습 실행
-- [ ] 학습 진행 상태 추적 (epoch, metrics)
+- [x] `services/yolo_service.py` 생성
+- [x] sbatch 방식 YOLO Seg 학습 제출 구현
+- [x] squeue + 로그 파싱으로 학습 상태 추적 (epoch, metrics)
+- [x] `scripts/train_yolo.py` 학습 스크립트 생성
+- [x] `scripts/train.sbatch` SLURM 배치 스크립트 생성
+- [x] `scripts/prepare_dataset.py` 심볼릭링크 데이터셋 구성
 
 ### 3-2. 학습 API
-- [ ] `routers/train.py` 생성
-- [ ] `POST /api/train/start` 구현
-- [ ] `GET /api/train/status` 구현
-- [ ] `GET /api/train/models` 구현
+- [x] `routers/train.py` 생성
+- [x] `POST /api/train/start` 구현
+- [x] `GET /api/train/status` 구현
+- [x] `GET /api/train/models` 구현
+- [x] `POST /api/train/stop` 구현
+- [x] `POST /api/train/prepare-dataset` 구현
 
 ### 3-3. YOLO Guide 추론 API
-- [ ] `routers/guide.py` 생성
-- [ ] `POST /api/guide/infer` 구현
-- [ ] confidence threshold 필터링
+- [x] `routers/guide.py` 생성
+- [x] `POST /api/guide/infer` 구현 (confidence threshold 필터링)
+- [x] `POST /api/guide/accept` 구현 (polygon → FrameState 저장)
 
 ### 3-4. Guide Label UI
-- [ ] `frontend/src/components/GuidePanel.tsx` 생성
-- [ ] 모델 선택 드롭다운
-- [ ] confidence threshold 슬라이더
-- [ ] "Guide 실행" 버튼 + 결과 오버레이
-- [ ] 객체별 accept/reject 체크박스
+- [x] `frontend/src/components/GuidePanel.tsx` 생성
+- [x] 모델 선택 드롭다운 (mAP50 표시)
+- [x] confidence threshold 슬라이더
+- [x] "Guide 실행" 버튼 + 결과 목록
+- [x] 객체별 accept/reject 체크박스
+- [x] 학습 시작/중지 + epoch 진행바 UI
+- [x] YOLO Guide 모드 활성화 (ModeToggle)
 
-**Phase 3 완료 기준**: 학습 실행 + guide label 생성 + accept/reject 동작
+### 변경사항 (Phase 3 추가 설계)
+- class 0=사람, class 1=강아지 (로봇/휠체어 데이터 수집 후 추가)
+- 학습: sbatch gpu-106, 모델 저장 /nas03/models/yolo_seg/
+- 데이터셋: /nas03/1_EV_LABELING → 심볼릭링크 → datasets/ev_labeling/
+- ⚠️ ultralytics 미설치: `pip install ultralytics` 필요
+
+**Phase 3 완료 기준**: ✅ 학습 실행 + guide label 생성 + accept/reject 동작
 
 ---
 
-## Phase 4: 저장 정책 및 다중 사용자
+## Phase 4: 저장 정책 및 다중 사용자 ✅ 완료
 
 ### 4-1. NAS 경로 저장
-- [ ] `routers/export.py` 리팩토링
-- [ ] `POST /api/save` NAS labels/ 폴더 저장 구현
-- [ ] 기존 파일 존재 시 409 + force 옵션 처리
+- [x] `routers/export.py` 구현 (Phase 1에서 완료)
+- [x] `POST /api/save` NAS labels/ 폴더 저장 구현
+- [x] 기존 파일 존재 시 conflict 응답 + force 옵션 처리
 
 ### 4-2. 다중 사용자 충돌 처리
-- [ ] 파일 수정 시각 기반 선저장 우선 처리
-- [ ] 충돌 경고 UI ("다른 사용자가 이미 저장했습니다")
+- [x] 파일 mtime 기반 충돌 감지 (`export.py:49-56`)
+- [x] 충돌 경고 UI — `window.confirm` + 덮어쓰기 (`App.tsx:188-199`)
 
 ### 4-3. 저장 상태 표시
-- [ ] `frontend/src/components/SaveButton.tsx` 생성
-- [ ] 저장됨 / 미저장 / 저장 중 상태 표시
+- [x] 저장됨 / 미저장 / 저장 중 상태 표시 (`Sidebar.tsx:135-151`)
 
-**Phase 4 완료 기준**: NAS 저장 + 충돌 경고 동작
+**Phase 4 완료 기준**: ✅ NAS 저장 + 충돌 경고 동작
 
 ---
 
-## Phase 5: 통합 검증
+## Phase 5: 통합 검증 ✅ 완료
 
 ### MVP 완료 기준 (정의서 §7)
-- [ ] 웹에서 특정 프로젝트 폴더의 이미지 프레임을 불러올 수 있다
-- [ ] 수기 라벨 데이터셋으로 YOLO Seg 학습 수행 및 모델 저장 가능
-- [ ] SAM 3 또는 YOLO guide로 segmentation 결과 생성 가능
-- [ ] 생성 결과가 화면에서 시각적으로 확인된다
-- [ ] 결과를 YOLO Seg 1.0 포맷으로 저장 및 지정 경로 생성
-- [ ] 최소 2인 이상 접속 내부 데모 수행 가능
+- [x] 웹에서 특정 프로젝트 폴더의 이미지 프레임을 불러올 수 있다
+- [x] 수기 라벨 데이터셋으로 YOLO Seg 학습 수행 및 모델 저장 가능 (epoch 28, mAP50=0.9317)
+- [x] SAM 3 또는 YOLO guide로 segmentation 결과 생성 가능
+- [x] 생성 결과가 화면에서 시각적으로 확인된다
+- [x] 결과를 YOLO Seg 1.0 포맷으로 저장 및 지정 경로 생성 (labels/stem.txt)
+- [ ] 최소 2인 이상 접속 내부 데모 수행 가능 (CORS=* 설정 완료, 실제 2인 데모 미진행)
 
 ### 추가 검증
-- [ ] 구현되면 좋음 항목 체크 (모델 선택/threshold, 다음/이전 편의 기능)
-- [ ] CORS 설정 확인 (내부망 IP 허용)
+- [x] 구현되면 좋음 항목 체크 (모델 선택/threshold, 방향키 네비, F키 새 객체)
+- [x] CORS 설정 확인 (allow_origins=["*"], 내부망 전체 허용)
 - [ ] 백엔드/프론트엔드 실행 방법 문서 정리
+
+### 버그 수정 (Phase 5 중 발견)
+- [x] mAP50 컬럼 인덱스 버그 수정 (vals[6]→header 파싱, train/sem_loss→metrics/mAP50(B))
+- [x] saved 상태 디스크 체크 추가 (서버 재시작 후에도 정확한 저장 상태 표시)

@@ -18,14 +18,15 @@ def _build_yolo_lines(frame: state.FrameState) -> list[str]:
     h, w = frame.image_rgb.shape[:2]
     lines: list[str] = []
     for obj in frame.objects.values():
-        if obj.mask is None:
-            continue
         class_id = CLASS_INDEX.get(obj.class_name)
         if class_id is None:
             continue
-        for poly in mask_to_polygons(obj.mask, w, h):
-            if poly:
-                lines.append(f"{class_id} " + " ".join(map(str, poly)))
+        if obj.mask is not None:
+            for poly in mask_to_polygons(obj.mask, w, h):
+                if poly:
+                    lines.append(f"{class_id} " + " ".join(map(str, poly)))
+        elif obj.polygon:
+            lines.append(f"{class_id} " + " ".join(map(str, obj.polygon)))
     return lines
 
 
@@ -59,6 +60,30 @@ def save_label(body: SaveRequest):
     frame.saved = True
 
     return {"ok": True, "label_path": str(label_file), "object_count": len(lines)}
+
+
+@router.post("/save/all")
+def save_all_labels(force: bool = False):
+    saved, skipped, errors = [], [], []
+    for img_path, frame in state.frames.items():
+        if not frame.objects:
+            continue
+        lines = _build_yolo_lines(frame)
+        if not lines:
+            continue
+        label_dir = Path(img_path).parent / "labels"
+        label_dir.mkdir(parents=True, exist_ok=True)
+        label_file = label_dir / f"{Path(img_path).stem}.txt"
+        if label_file.exists() and not force:
+            skipped.append(img_path)
+            continue
+        try:
+            label_file.write_text("\n".join(lines))
+            frame.saved = True
+            saved.append(img_path)
+        except Exception as e:
+            errors.append({"path": img_path, "error": str(e)})
+    return {"saved": len(saved), "skipped": len(skipped), "errors": errors}
 
 
 @router.get("/save/status")

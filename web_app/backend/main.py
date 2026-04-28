@@ -5,9 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import export
+from routers.guide import router as guide_router
 from routers.project import router as project_router
 from routers.sam_label import router as sam_label_router
+from routers.train import router as train_router
 from services.sam3_service import SAM3Service
+from services.yolo_service import YoloService
 
 app = FastAPI(title="SAM3 Auto Labeling")
 
@@ -21,6 +24,8 @@ app.add_middleware(
 app.include_router(project_router, prefix="/api")
 app.include_router(sam_label_router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(train_router, prefix="/api")
+app.include_router(guide_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -37,6 +42,8 @@ async def startup() -> None:
         SAM3Service.get().load(sam_checkpoint, sam_cfg)
     else:
         print(f"[WARN] SAM3 checkpoint not found: {sam_checkpoint}")
+
+    YoloService.get()  # SLURM 상태 복구
 
 
 def _load_env() -> None:

@@ -157,12 +157,16 @@ def get_objects(image_path: str):
     h, w = frame.image_rgb.shape[:2]
     objects = []
     for obj_id, obj in frame.objects.items():
-        if obj.mask is None:
+        if obj.mask is not None:
+            polygons = mask_to_polygons(obj.mask, w, h)
+        elif obj.polygon:
+            polygons = [obj.polygon]
+        else:
             continue
         objects.append({
             "obj_id": obj_id,
             "class_name": obj.class_name,
-            "polygons": mask_to_polygons(obj.mask, w, h),
+            "polygons": polygons,
             "click_count": len(obj.coords),
             "from_box": obj.initial_box is not None,
         })
