@@ -11,8 +11,10 @@ router = APIRouter()
 class TrainRequest(BaseModel):
     epochs: int = 50
     imgsz: int = 1280
-    batch: int = 4
+    batch: int = 8
     model: str = ""
+    freeze: int = 0
+    tag: str = ""
 
 
 @router.post("/train/start")
@@ -23,6 +25,8 @@ def start_training(req: TrainRequest):
             imgsz=req.imgsz,
             batch=req.batch,
             model=req.model,
+            freeze=req.freeze,
+            tag=req.tag,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))

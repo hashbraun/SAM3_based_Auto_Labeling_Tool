@@ -91,8 +91,10 @@ class YoloService:
         self,
         epochs: int = 50,
         imgsz: int = 1280,
-        batch: int = 4,
+        batch: int = 8,
         model: str = "",
+        freeze: int = 0,
+        tag: str = "",
     ) -> str:
         if self._status.running or self._status.pending:
             raise RuntimeError(f"이미 실행 중 (job_id={self._status.job_id})")
@@ -114,6 +116,8 @@ class YoloService:
             "{EPOCHS}": str(epochs),
             "{IMGSZ}": str(imgsz),
             "{BATCH}": str(batch),
+            "{FREEZE}": str(freeze),
+            "{TAG}": tag,
             "{WEIGHTS_DIR}": weights_dir,
             "{RUN_NAME}": run_name,
         }.items():

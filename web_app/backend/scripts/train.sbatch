@@ -24,7 +24,8 @@ $PYTHON scripts/train_yolo.py \
     --epochs {EPOCHS} \
     --imgsz {IMGSZ} \
     --batch {BATCH} \
-    --weights-dir {WEIGHTS_DIR} \
-    --run-name {RUN_NAME}
+    --freeze {FREEZE} \
+    --tag {TAG} \
+    --weights-dir {WEIGHTS_DIR}
 
 echo "[SBATCH] Done: $(date)"
